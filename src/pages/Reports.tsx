@@ -1,9 +1,12 @@
 import { useState, useMemo } from "react";
-import { BarChart3, DollarSign, TrendingUp, TrendingDown, Receipt, PieChart } from "lucide-react";
+import { BarChart3, DollarSign, TrendingUp, TrendingDown, Receipt, PieChart, HandCoins, Download, Search } from "lucide-react";
+import { jsPDF } from "jspdf";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
-import { useSales, useExpenses } from "@/lib/store";
+import { useSales, useExpenses, useCustomerCredits, useProducts, useStockEntries } from "@/lib/store";
 import { format, subDays, startOfWeek, startOfMonth, startOfYear, isAfter, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
@@ -33,7 +36,13 @@ export default function Reports() {
 
   const { sales, loading: salesLoading } = useSales();
   const { expenses, loading: expensesLoading } = useExpenses();
+  const { credits, loading: creditsLoading } = useCustomerCredits();
+  const { products, loading: productsLoading } = useProducts();
+  const { entries: stockEntries, loading: stockLoading } = useStockEntries();
   const [period, setPeriod] = useState<Period>("month");
+  const [loanClientSearch, setLoanClientSearch] = useState("");
+  const [loanReportDate, setLoanReportDate] = useState("");
+  const [loanReportApplied, setLoanReportApplied] = useState(false);
 
   const filtered = useMemo(() => {
     const start = getStartDate(period);
@@ -43,14 +52,26 @@ export default function Reports() {
     const filteredExpenses = start
       ? expenses.filter(e => isAfter(parseISO(e.date), start) || e.date === format(start, "yyyy-MM-dd"))
       : expenses;
-    return { sales: filteredSales, expenses: filteredExpenses };
-  }, [sales, expenses, period]);
+    const filteredStockEntries = start
+      ? stockEntries.filter(e => isAfter(parseISO(e.date), start) || e.date === format(start, "yyyy-MM-dd"))
+      : stockEntries;
+    const filteredCredits = start
+      ? credits.filter(c => isAfter(parseISO(c.date), start) || c.date === format(start, "yyyy-MM-dd"))
+      : credits;
+    return { sales: filteredSales, expenses: filteredExpenses, stockEntries: filteredStockEntries, credits: filteredCredits };
+  }, [sales, expenses, stockEntries, credits, period]);
 
   const totalSales = filtered.sales.reduce((s, v) => s + v.total, 0);
   const totalExpenses = filtered.expenses.reduce((s, v) => s + v.amount, 0);
   const netProfit = totalSales - totalExpenses;
   const estimatedTax = Math.max(0, netProfit * TAX_RATE);
   const afterTax = netProfit - estimatedTax;
+  const stockAdded = filtered.stockEntries.filter((entry) => entry.type === "in").reduce((sum, entry) => sum + entry.quantity, 0);
+  const stockRemoved = filtered.stockEntries.filter((entry) => entry.type === "out").reduce((sum, entry) => sum + entry.quantity, 0);
+  const totalStockUnits = products.reduce((sum, product) => sum + product.stock, 0);
+  const periodLoanAmount = filtered.credits.reduce((sum, credit) => sum + Number(credit.amountDue || 0), 0);
+  const periodLoanPaid = filtered.credits.reduce((sum, credit) => sum + Number(credit.paidAmount || 0), 0);
+  const periodLoanOutstanding = filtered.credits.reduce((sum, credit) => sum + Math.max(0, Number(credit.amountDue || 0) - Number(credit.paidAmount || 0)), 0);
 
   // Expenses breakdown by category
   const expensesByCategory = useMemo(() => {
@@ -72,7 +93,107 @@ export default function Reports() {
     return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
   }, [filtered.sales]);
 
-  const loading = salesLoading || expensesLoading;
+  const loading = salesLoading || expensesLoading || creditsLoading || productsLoading || stockLoading;
+
+  const filteredLoanReport = useMemo(() => {
+    const clientQuery = loanClientSearch.trim().toLowerCase();
+    return credits.filter((credit) => {
+      const matchesClient = !clientQuery || credit.customerName.toLowerCase().includes(clientQuery);
+      const matchesDate = !loanReportDate || credit.date === loanReportDate || credit.dueDate === loanReportDate;
+      return matchesClient && matchesDate;
+    });
+  }, [credits, loanClientSearch, loanReportDate]);
+
+  const downloadLoanReport = () => {
+    if (filteredLoanReport.length === 0) return;
+
+    const document = new jsPDF();
+    document.setFontSize(18);
+    document.text("ICYIZERE BUSINESS - Loan Report", 14, 18);
+    document.setFontSize(10);
+    document.text(`Client: ${loanClientSearch.trim() || "All clients"}`, 14, 27);
+    document.text(`Date: ${loanReportDate || "All dates"}`, 14, 34);
+
+    let y = 46;
+    filteredLoanReport.forEach((credit, index) => {
+      const remaining = Math.max(0, Number(credit.amountDue || 0) - Number(credit.paidAmount || 0));
+      document.setFontSize(11);
+      document.text(`${index + 1}. ${credit.customerName} - ${credit.productName}`, 14, y);
+      document.setFontSize(9);
+      document.text(`Recorded: ${credit.date} | Due: ${credit.dueDate || credit.date}`, 18, y + 6);
+      document.text(`Loan: RWF ${Number(credit.amountDue || 0).toLocaleString()} | Paid: RWF ${Number(credit.paidAmount || 0).toLocaleString()} | Remaining: RWF ${remaining.toLocaleString()} | Status: ${credit.status}`, 18, y + 12);
+      y += 23;
+      if (y > 275) {
+        document.addPage();
+        y = 20;
+      }
+    });
+
+    document.save(`loan-report-${loanReportDate || "all-dates"}.pdf`);
+  };
+
+  const downloadFullReport = () => {
+    const document = new jsPDF();
+    const money = (value: number) => `RWF ${value.toLocaleString()}`;
+    const reportDate = format(new Date(), "yyyy-MM-dd");
+    let y = 18;
+
+    const addLine = (text: string, size = 9) => {
+      const lines = document.splitTextToSize(text, 180) as string[];
+      if (y + lines.length * 5 > 280) {
+        document.addPage();
+        y = 18;
+      }
+      document.setFontSize(size);
+      document.text(lines, 14, y);
+      y += lines.length * 5 + 2;
+    };
+
+    document.setFontSize(20);
+    document.text("ICYIZERE BUSINESS", 14, y);
+    y += 8;
+    document.setFontSize(14);
+    document.text(`${periodLabel[period]} Financial Report`, 14, y);
+    y += 6;
+    addLine(`Generated: ${reportDate} | Report period: ${periodLabel[period]}`, 9);
+
+    addLine("CALCULATED SUMMARY", 13);
+    addLine(`Revenue = sum of sales totals: ${money(totalSales)}`);
+    addLine(`Expenses = sum of expense amounts: ${money(totalExpenses)}`);
+    addLine(`Stock = current quantity across all products: ${totalStockUnits} units`);
+    addLine(`Profit = revenue - expenses: ${money(netProfit)}`);
+    addLine(`Estimated tax = max(0, profit x 18%): ${money(estimatedTax)}`);
+    addLine(`Profit after tax = profit - estimated tax: ${money(afterTax)}`);
+    addLine(`Loans created in period: ${money(periodLoanAmount)} | Paid: ${money(periodLoanPaid)} | Outstanding: ${money(periodLoanOutstanding)}`);
+    addLine(`Stock added: ${stockAdded} units | Stock removed: ${stockRemoved} units | Products currently listed: ${products.length}`);
+
+    addLine("SALES TRANSACTIONS", 13);
+    filtered.sales.forEach((sale, index) => {
+      addLine(`${index + 1}. ${sale.date} | ${sale.productName} | Qty ${sale.quantity} | ${money(sale.total)} | ${(sale.source ?? "sale").replace("_", " ")} | ${sale.employeeName}`);
+    });
+    if (filtered.sales.length === 0) addLine("No sales transactions in this period.");
+
+    addLine("EXPENSE TRANSACTIONS", 13);
+    filtered.expenses.forEach((expense, index) => {
+      addLine(`${index + 1}. ${expense.date} | ${expense.category} | ${money(expense.amount)} | ${expense.description || "No description"}`);
+    });
+    if (filtered.expenses.length === 0) addLine("No expense transactions in this period.");
+
+    addLine("STOCK TRANSACTIONS", 13);
+    filtered.stockEntries.forEach((entry, index) => {
+      addLine(`${index + 1}. ${entry.date} | ${entry.type === "in" ? "Added" : "Removed"} | ${entry.productName} | Qty ${entry.quantity} | ${entry.note || "No note"}`);
+    });
+    if (filtered.stockEntries.length === 0) addLine("No stock transactions in this period.");
+
+    addLine("LOAN TRANSACTIONS", 13);
+    filtered.credits.forEach((credit, index) => {
+      const remaining = Math.max(0, Number(credit.amountDue || 0) - Number(credit.paidAmount || 0));
+      addLine(`${index + 1}. ${credit.date} | ${credit.customerName} | ${credit.productName} | Loan ${money(Number(credit.amountDue || 0))} | Paid ${money(Number(credit.paidAmount || 0))} | Remain ${money(remaining)} | ${credit.status}`);
+    });
+    if (filtered.credits.length === 0) addLine("No loan transactions in this period.");
+
+    document.save(`icyizere-${period}-report-${reportDate}.pdf`);
+  };
 
   const periodLabel: Record<Period, string> = {
     today: "Today",
@@ -100,6 +221,11 @@ export default function Reports() {
             <SelectItem value="all">All Time</SelectItem>
           </SelectContent>
         </Select>
+
+        <Button type="button" onClick={downloadFullReport} disabled={loading} className="w-full">
+          <Download className="h-4 w-4" />
+          Download Complete {periodLabel[period]} Report
+        </Button>
 
         {loading ? (
           <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
@@ -223,6 +349,63 @@ export default function Reports() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  <HandCoins className="h-4 w-4 text-amber-600" />
+                  Loan Report
+                </h3>
+                <span className="text-xs text-muted-foreground">{loanReportApplied ? `${filteredLoanReport.length} match(es)` : "Search to view"}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={loanClientSearch}
+                    onChange={(event) => setLoanClientSearch(event.target.value)}
+                    placeholder="Search one client"
+                    className="h-9 pl-9"
+                  />
+                </div>
+                <Input
+                  type="date"
+                  value={loanReportDate}
+                  onChange={(event) => setLoanReportDate(event.target.value)}
+                  aria-label="Loan report date"
+                  className="h-9"
+                />
+                <Button type="button" onClick={() => setLoanReportApplied(true)} className="h-9">
+                  Search
+                </Button>
+              </div>
+              {loanReportApplied && (
+                <>
+                  {filteredLoanReport.length > 0 ? (
+                    <div className="space-y-2">
+                      {filteredLoanReport.map((credit) => {
+                        const remaining = Math.max(0, Number(credit.amountDue || 0) - Number(credit.paidAmount || 0));
+                        return (
+                          <div key={credit.id} className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-foreground">{credit.customerName}</span>
+                              <span className="text-xs capitalize text-muted-foreground">{credit.status}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{credit.productName} · Recorded {credit.date} · Due {credit.dueDate || credit.date}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">Loan: RWF {Number(credit.amountDue || 0).toLocaleString()} · Paid: RWF {Number(credit.paidAmount || 0).toLocaleString()} · Remain: RWF {remaining.toLocaleString()}</p>
+                          </div>
+                        );
+                      })}
+                      <Button type="button" variant="outline" onClick={downloadLoanReport} className="w-full">
+                        <Download className="h-4 w-4" /> Download Loan Report
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">No loans found for this client and date.</p>
+                  )}
+                </>
               )}
             </div>
           </>

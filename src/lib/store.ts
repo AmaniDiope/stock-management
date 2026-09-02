@@ -1,6 +1,7 @@
 // Supabase-backed store hooks
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getCreditStatus } from "@/lib/credit";
 
 // Use the project's Supabase client (cast to any for tables not yet in generated types)
 const db = supabase as any;
@@ -24,6 +25,8 @@ export interface Sale {
   total: number;
   date: string;
   employeeName: string;
+  source?: "sale" | "loan_payment";
+  customerName?: string;
 }
 
 export interface Expense {
@@ -32,6 +35,29 @@ export interface Expense {
   amount: number;
   description: string;
   date: string;
+}
+
+export interface CustomerCredit {
+  id: string;
+  customerName: string;
+  productName: string;
+  quantity: number;
+  amountDue: number;
+  paidAmount: number;
+  status: "open" | "partial" | "paid" | "completed";
+  date: string;
+  dueDate: string;
+  employeeName: string;
+  note?: string;
+}
+
+export interface CustomerCreditPayment {
+  id: string;
+  creditId: string;
+  amount: number;
+  paidOn: string;
+  employeeName: string;
+  note?: string;
 }
 
 export interface StockEntry {
@@ -179,10 +205,12 @@ export function useSales() {
           id: r.id,
           productId: r.product_id,
           productName: r.product_name,
-          quantity: Number(r.quantity),
-          total: Number(r.total),
+          quantity: Number(r.quantity ?? 1),
+          total: Number(r.total ?? 0),
           date: r.date,
           employeeName: r.employee_name ?? "Unknown",
+          source: (r.source as "sale" | "loan_payment") ?? "sale",
+          customerName: r.customer_name ?? undefined,
         }))
       );
     }
@@ -197,6 +225,7 @@ export function useSales() {
     const userId = await getUserId();
     if (!userId) return;
     const fullName = s.employeeName || (await getUserFullName()) || "Unknown";
+    const source = s.source ?? "sale";
     const { data, error } = await db
       .from("sales")
       .insert({
@@ -206,6 +235,8 @@ export function useSales() {
         total: s.total,
         date: s.date,
         employee_name: fullName,
+        source,
+        customer_name: s.customerName ?? null,
         user_id: userId,
       })
       .select()
@@ -220,6 +251,8 @@ export function useSales() {
           total: Number(data.total),
           date: data.date,
           employeeName: data.employee_name ?? fullName,
+          source: (data.source as "sale" | "loan_payment") ?? source,
+          customerName: data.customer_name ?? s.customerName,
         },
         ...prev,
       ]);
@@ -227,6 +260,230 @@ export function useSales() {
   };
 
   return { sales, addSale, loading };
+}
+
+// ---------- useCustomerCredits ----------
+
+export function useCustomerCredits() {
+  const [credits, setCredits] = useState<CustomerCredit[]>([]);
+  const [paymentsByCredit, setPaymentsByCredit] = useState<Record<string, CustomerCreditPayment[]>>({});
+  const [loading, setLoading] = useState(true);
+
+  const fetchCredits = useCallback(async () => {
+    const userId = await getUserId();
+    if (!userId) return;
+    const { data } = await db
+      .from("customer_credits")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      setCredits(
+        data.map((r: any) => ({
+          id: r.id,
+          customerName: r.customer_name ?? "Unknown customer",
+          productName: r.product_name ?? "Product",
+          quantity: Number(r.quantity ?? 1),
+          amountDue: Number(r.amount_due ?? 0),
+          paidAmount: Number(r.paid_amount ?? 0),
+          status: (r.status as "open" | "partial" | "paid" | "completed") ?? "open",
+          date: r.date,
+          dueDate: r.due_date ?? r.date,
+          employeeName: r.employee_name ?? "Unknown",
+          note: r.note ?? "",
+        }))
+      );
+    }
+    setLoading(false);
+  }, []);
+
+  const fetchCreditPayments = useCallback(async (creditId: string) => {
+    const userId = await getUserId();
+    if (!userId) return [] as CustomerCreditPayment[];
+
+    const { data } = await db
+      .from("customer_credit_payments")
+      .select("*")
+      .eq("credit_id", creditId)
+      .order("paid_on", { ascending: false });
+
+    const mapped = (data ?? []).map((r: any) => ({
+      id: r.id,
+      creditId: r.credit_id,
+      amount: Number(r.amount ?? 0),
+      paidOn: r.paid_on,
+      employeeName: r.employee_name ?? "Unknown",
+      note: r.note ?? "",
+    }));
+
+    setPaymentsByCredit((prev) => ({ ...prev, [creditId]: mapped }));
+    return mapped;
+  }, []);
+
+  useEffect(() => {
+    fetchCredits();
+  }, [fetchCredits]);
+
+  const addCustomerCredit = async (c: Omit<CustomerCredit, "id" | "status" | "paidAmount" > & { paidAmount?: number; status?: "open" | "partial" | "paid" }) => {
+    const userId = await getUserId();
+    if (!userId) return;
+    const fullName = c.employeeName || (await getUserFullName()) || "Unknown";
+    const amountDue = Number(c.amountDue ?? 0);
+    const paidAmount = Number(c.paidAmount ?? 0);
+    const dueDate = c.dueDate || c.date;
+    const status = c.status ?? getCreditStatus(amountDue, paidAmount);
+
+    const { data, error } = await db
+      .from("customer_credits")
+      .insert({
+        customer_name: c.customerName,
+        product_name: c.productName,
+        quantity: c.quantity,
+        amount_due: amountDue,
+        paid_amount: paidAmount,
+        status,
+        date: c.date,
+        due_date: dueDate,
+        note: c.note ?? "",
+        employee_name: fullName,
+        user_id: userId,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      await db.from("sales").insert({
+        product_id: null,
+        product_name: `Loan - ${c.customerName}`,
+        quantity: c.quantity,
+        total: amountDue,
+        date: c.date,
+        employee_name: fullName,
+        source: "loan",
+        customer_name: c.customerName,
+        user_id: userId,
+      });
+      setCredits((prev) => [
+        {
+          id: data.id,
+          customerName: data.customer_name ?? c.customerName,
+          productName: data.product_name ?? c.productName,
+          quantity: Number(data.quantity ?? c.quantity),
+          amountDue: Number(data.amount_due ?? amountDue),
+          paidAmount: Number(data.paid_amount ?? paidAmount),
+          status: (data.status as "open" | "partial" | "paid" | "completed") ?? status,
+          date: data.date,
+          dueDate: data.due_date ?? dueDate,
+          employeeName: data.employee_name ?? fullName,
+          note: data.note ?? c.note ?? "",
+        },
+        ...prev,
+      ]);
+    }
+  };
+
+  const updateCustomerCredit = async (id: string, updates: Partial<Pick<CustomerCredit, "amountDue" | "paidAmount" | "status">>) => {
+    const userId = await getUserId();
+    if (!userId) return;
+
+    const payload: any = {};
+    if (updates.amountDue !== undefined) payload.amount_due = updates.amountDue;
+    if (updates.paidAmount !== undefined) payload.paid_amount = updates.paidAmount;
+    if (updates.status !== undefined) payload.status = updates.status;
+
+    const currentRecord = credits.find((credit) => credit.id === id);
+    if (currentRecord && updates.paidAmount !== undefined) {
+      const nextStatus = getCreditStatus(
+        updates.amountDue ?? currentRecord.amountDue,
+        updates.paidAmount
+      );
+      payload.status = nextStatus;
+    } else if (updates.status !== undefined) {
+      payload.status = updates.status;
+    }
+
+    const { data, error } = await db
+      .from("customer_credits")
+      .update(payload)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setCredits((prev) =>
+        prev.map((credit) =>
+          credit.id === id
+            ? {
+                ...credit,
+                amountDue: Number(data.amount_due ?? credit.amountDue),
+                paidAmount: Number(data.paid_amount ?? credit.paidAmount),
+                status: (data.status as "open" | "partial" | "paid" | "completed") ?? credit.status,
+              }
+            : credit
+        )
+      );
+    }
+  };
+
+  const recordPayment = async (creditId: string, amount: number, employeeName?: string, note?: string) => {
+    const userId = await getUserId();
+    if (!userId || amount <= 0) return;
+
+    const currentCredit = credits.find((credit) => credit.id === creditId);
+    if (!currentCredit) return;
+
+    const fullName = employeeName || (await getUserFullName()) || "Unknown";
+    const paidOn = new Date().toISOString().split("T")[0];
+
+    const { data, error } = await db
+      .from("customer_credit_payments")
+      .insert({
+        credit_id: creditId,
+        amount,
+        paid_on: paidOn,
+        employee_name: fullName,
+        note: note ?? "",
+        user_id: userId,
+      })
+      .select()
+      .single();
+
+    if (error || !data) return;
+
+    const nextPaidAmount = Number(currentCredit.paidAmount || 0) + amount;
+    const nextStatus = getCreditStatus(currentCredit.amountDue, nextPaidAmount);
+
+    await updateCustomerCredit(creditId, {
+      paidAmount: nextPaidAmount,
+      status: nextStatus,
+    });
+
+    const paymentEntry: CustomerCreditPayment = {
+      id: data.id,
+      creditId: creditId,
+      amount: Number(data.amount ?? amount),
+      paidOn: data.paid_on ?? paidOn,
+      employeeName: data.employee_name ?? fullName,
+      note: data.note ?? note ?? "",
+    };
+
+    setPaymentsByCredit((prev) => ({
+      ...prev,
+      [creditId]: [paymentEntry, ...(prev[creditId] ?? [])],
+    }));
+
+    await db.from("sales").insert({
+      product_id: null,
+      product_name: `Loan payment - ${currentCredit.customerName}`,
+      quantity: 1,
+      total: amount,
+      date: paidOn,
+      employee_name: fullName,
+      user_id: userId,
+    });
+  };
+
+  return { credits, paymentsByCredit, addCustomerCredit, updateCustomerCredit, recordPayment, fetchCreditPayments, loading };
 }
 
 // ---------- useExpenses ----------

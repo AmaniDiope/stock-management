@@ -1,18 +1,22 @@
-import { DollarSign, Package, TrendingUp, AlertTriangle, ShoppingCart, ArrowDownRight } from "lucide-react";
+import { useState } from "react";
+import { DollarSign, Package, TrendingUp, AlertTriangle, ShoppingCart, ArrowDownRight, HandCoins, Eye, EyeOff } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
-import { useProducts, useSales, useExpenses } from "@/lib/store";
+import { useProducts, useSales, useExpenses, useCustomerCredits } from "@/lib/store";
 
 export default function Dashboard() {
+  const [showLowStock, setShowLowStock] = useState(true);
   const { products } = useProducts();
   const { sales } = useSales();
   const { expenses } = useExpenses();
+  const { credits } = useCustomerCredits();
 
   const today = new Date().toISOString().split("T")[0];
   const todaySales = sales.filter(s => s.date === today);
   const totalRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const totalProducts = products.reduce((sum, p) => sum + p.stock, 0);
+  const totalOutstandingLoans = credits.reduce((sum, credit) => sum + Math.max(0, Number(credit.amountDue || 0) - Number(credit.paidAmount || 0)), 0);
   const lowStockItems = products.filter(p => p.stock <= p.minStock);
   const profit = totalRevenue - totalExpenses;
 
@@ -49,10 +53,35 @@ export default function Dashboard() {
             icon={TrendingUp}
             variant={profit >= 0 ? "success" : "destructive"}
           />
+          <StatCard
+            title="Total Loans"
+            value={`RWF ${totalOutstandingLoans.toLocaleString()}`}
+            icon={HandCoins}
+            variant="accent"
+            trend={`${credits.length} customer(s)`}
+          />
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4">
+          <h3 className="font-semibold text-foreground mb-2">Dashboard formulas</h3>
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <p><span className="font-medium text-foreground">Revenue:</span> sum of today&apos;s sales totals</p>
+            <p><span className="font-medium text-foreground">Expenses:</span> sum of all recorded expense amounts</p>
+            <p><span className="font-medium text-foreground">Stock:</span> sum of current quantity in every product</p>
+            <p><span className="font-medium text-foreground">Profit:</span> revenue minus expenses</p>
+            <p><span className="font-medium text-foreground">Total Loans:</span> sum of amount due minus amount already paid</p>
+          </div>
         </div>
 
         {/* Low Stock Alert */}
-        {lowStockItems.length > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-foreground">Low Stock Alert</p>
+          <button type="button" onClick={() => setShowLowStock((visible) => !visible)} className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground">
+            {showLowStock ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showLowStock ? "Hide" : "Show"}
+          </button>
+        </div>
+        {showLowStock && lowStockItems.length > 0 && (
           <div className="rounded-xl border border-warning/30 bg-warning/5 p-4">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-4 w-4 text-warning" />
