@@ -2,9 +2,9 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-type AppRole = "manager" | "employee";
+export type AppRole = "admin" | "manager" | "employee";
 
-interface Profile {
+export interface Profile {
   id: string;
   user_id: string;
   full_name: string | null;
@@ -13,6 +13,7 @@ interface Profile {
   location: string | null;
   created_at: string;
   updated_at: string;
+  is_active: boolean;
 }
 
 interface EmployeePermissions {
@@ -119,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error('User fetch error:', userError);
         }
         const metaRole = user?.user_metadata?.role as string;
-        setRole((metaRole === "manager" || metaRole === "employee") ? metaRole : "employee");
+        setRole((metaRole === "admin" || metaRole === "manager" || metaRole === "employee") ? metaRole : "employee");
       }
     } catch (error) {
       console.error('fetchUserData error:', error);

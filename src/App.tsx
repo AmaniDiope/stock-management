@@ -22,6 +22,7 @@ import NotFound from "./pages/NotFound";
 import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
+import Admin from "./pages/Admin";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,8 @@ const App = () => (
                 <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
                 <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]}><Admin /></ProtectedRoute>} />
+                <Route path="/admin/managers/:employeeId/activity" element={<ProtectedRoute allowedRoles={["admin"]}><EmployeeActivity /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <BottomNav />

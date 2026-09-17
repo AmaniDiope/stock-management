@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3, Warehouse } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3, Warehouse, Shield } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -32,6 +32,9 @@ export default function BottomNav() {
       ? [
           { icon: Users, label: "Employees", path: "/employees" },
         ]
+      : []),
+    ...(role === "admin"
+      ? [{ icon: Shield, label: "Admin", path: "/admin" }]
       : []),
   ];
 

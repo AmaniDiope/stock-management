@@ -49,7 +49,7 @@ export default function EmployeeActivity() {
   const [totalRevenue, setTotalRevenue] = useState(0);
 
   useEffect(() => {
-    if (!employeeId || role !== "manager") return;
+    if (!employeeId || (role !== "manager" && role !== "admin")) return;
     fetchEmployeeData();
     fetchProducts();
     fetchActivity();
@@ -177,7 +177,7 @@ export default function EmployeeActivity() {
   const totalStockIn = stockInQuantity;
   const totalStockOut = stockOutQuantity;
 
-  if (role !== "manager") {
+  if (role !== "manager" && role !== "admin") {
     return (
       <div className="pb-24 px-4 pt-8 text-center">
         <p className="text-muted-foreground">Access restricted to managers.</p>
@@ -188,7 +188,7 @@ export default function EmployeeActivity() {
   return (
     <div className="pb-24">
       <div className="px-4 pt-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/employees")} className="mb-2">
+        <Button variant="ghost" size="sm" onClick={() => navigate(role === "admin" ? "/admin" : "/employees")} className="mb-2">
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
       </div>
