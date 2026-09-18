@@ -24,6 +24,9 @@ export default function BottomNav() {
     if (item.label === "Reports" && permissions && !permissions.can_view_stock) {
       return false;
     }
+    if (role === "admin" && ["Products", "Sales", "Expenses"].includes(item.label)) {
+      return false;
+    }
     return true;
   });
 
@@ -31,7 +34,7 @@ export default function BottomNav() {
     ? [
         filteredBaseItems[0],
         { icon: Shield, label: "Admin", path: "/admin" },
-        ...filteredBaseItems.slice(1),
+        ...filteredBaseItems.filter(item => item.path !== "/").slice(0, 3),
         ...(isManagerOrAdmin(role)
           ? [{ icon: Users, label: "Employees", path: "/employees" }]
           : []),
