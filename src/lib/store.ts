@@ -16,6 +16,8 @@ export interface Product {
   stock: number;
   category: string;
   minStock: number;
+  isTaxable: boolean;
+  taxRate: number;
 }
 
 export interface Sale {
@@ -24,6 +26,7 @@ export interface Sale {
   productName: string;
   quantity: number;
   total: number;
+  taxAmount?: number;
   date: string;
   employeeName: string;
   source?: "sale" | "loan_payment";
@@ -191,6 +194,8 @@ export function useProducts() {
             stock: Number(r.stock),
             category: r.category ?? "General",
             minStock: Number(r.min_stock ?? 10),
+            isTaxable: Boolean(r.is_taxable ?? false),
+            taxRate: Number(r.tax_rate ?? 0),
           }))
         );
       }
@@ -238,6 +243,8 @@ export function useProducts() {
         stock: p.stock,
         category: p.category,
         min_stock: p.minStock,
+        is_taxable: p.isTaxable,
+        tax_rate: p.taxRate,
         user_id: userId,
       })
       .select()
@@ -252,6 +259,8 @@ export function useProducts() {
           stock: Number(data.stock),
           category: data.category ?? "General",
           minStock: Number(data.min_stock ?? 10),
+          isTaxable: Boolean(data.is_taxable ?? false),
+          taxRate: Number(data.tax_rate ?? 0),
         },
         ...prev,
       ]);
@@ -276,6 +285,8 @@ export function useProducts() {
     if (p.stock !== undefined) updates.stock = p.stock;
     if (p.category !== undefined) updates.category = p.category;
     if (p.minStock !== undefined) updates.min_stock = p.minStock;
+    if (p.isTaxable !== undefined) updates.is_taxable = p.isTaxable;
+    if (p.taxRate !== undefined) updates.tax_rate = p.taxRate;
 
     const { error } = await db.from("products").update(updates).eq("id", id);
     if (!error) {
@@ -352,6 +363,7 @@ export function useSales() {
             productName: r.product_name,
             quantity: Number(r.quantity ?? 1),
             total: Number(r.total ?? 0),
+            taxAmount: Number(r.tax_amount ?? 0),
             date: r.date,
             employeeName: r.employee_name ?? "Unknown",
             source: (r.source as "sale" | "loan_payment") ?? "sale",
@@ -409,6 +421,7 @@ export function useSales() {
         product_name: s.productName,
         quantity: s.quantity,
         total: s.total,
+        tax_amount: s.taxAmount ?? 0,
         date: s.date,
         employee_name: fullName,
         employee_id: userId,
@@ -428,6 +441,7 @@ export function useSales() {
           productName: data.product_name,
           quantity: Number(data.quantity),
           total: Number(data.total),
+          taxAmount: Number(data.tax_amount ?? 0),
           date: data.date,
           employeeName: data.employee_name ?? fullName,
           source: (data.source as "sale" | "loan_payment") ?? source,

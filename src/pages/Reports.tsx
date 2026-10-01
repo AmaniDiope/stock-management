@@ -62,8 +62,10 @@ export default function Reports() {
   }, [sales, expenses, stockEntries, credits, period]);
 
   const totalSales = filtered.sales.reduce((s, v) => s + v.total, 0);
+  const productTaxCollected = filtered.sales.reduce((sum, sale) => sum + Number(sale.taxAmount || 0), 0);
+  const salesBeforeProductTax = totalSales - productTaxCollected;
   const totalExpenses = filtered.expenses.reduce((s, v) => s + v.amount, 0);
-  const netProfit = totalSales - totalExpenses;
+  const netProfit = salesBeforeProductTax - totalExpenses;
   const estimatedTax = Math.max(0, netProfit * TAX_RATE);
   const afterTax = netProfit - estimatedTax;
   const stockAdded = filtered.stockEntries.filter((entry) => entry.type === "in").reduce((sum, entry) => sum + entry.quantity, 0);
@@ -159,10 +161,12 @@ export default function Reports() {
 
     addLine("CALCULATED SUMMARY", 13);
     addLine(`Revenue = sum of sales totals: ${money(totalSales)}`);
+    addLine(`Product tax collected: ${money(productTaxCollected)}`);
+    addLine(`Sales before product tax: ${money(salesBeforeProductTax)}`);
     addLine(`Expenses = sum of expense amounts: ${money(totalExpenses)}`);
     addLine(`Stock = current quantity across all products: ${totalStockUnits} units`);
-    addLine(`Profit = revenue - expenses: ${money(netProfit)}`);
-    addLine(`Estimated tax = max(0, profit x 18%): ${money(estimatedTax)}`);
+    addLine(`Profit = sales before product tax - expenses: ${money(netProfit)}`);
+    addLine(`Estimated income tax = max(0, profit x 18%): ${money(estimatedTax)}`);
     addLine(`Profit after tax = profit - estimated tax: ${money(afterTax)}`);
     addLine(`Loans created in period: ${money(periodLoanAmount)} | Paid: ${money(periodLoanPaid)} | Outstanding: ${money(periodLoanOutstanding)}`);
     addLine(`Stock added: ${stockAdded} units | Stock removed: ${stockRemoved} units | Products currently listed: ${products.length}`);
@@ -310,6 +314,14 @@ export default function Reports() {
                   <span className="font-medium text-foreground">RWF {totalSales.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Product Tax Collected</span>
+                  <span className="font-medium text-foreground">RWF {productTaxCollected.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Revenue Before Product Tax</span>
+                  <span className="font-medium text-foreground">RWF {salesBeforeProductTax.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Deductions</span>
                   <span className="font-medium text-destructive">-RWF {totalExpenses.toLocaleString()}</span>
                 </div>
@@ -319,7 +331,7 @@ export default function Reports() {
                 </div>
                 <div className="border-t border-border my-1" />
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Estimated Tax (18%)</span>
+                  <span className="text-muted-foreground">Estimated Income Tax (18%)</span>
                   <span className="font-bold text-warning">RWF {estimatedTax.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">

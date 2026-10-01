@@ -3,6 +3,7 @@ import { Plus, Receipt, Zap, Droplets, Home, MoreHorizontal, TrendingDown, Grid3
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import CurrencyAmountField from "@/components/CurrencyAmountField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import PageHeader from "@/components/PageHeader";
@@ -10,6 +11,7 @@ import StatCard from "@/components/StatCard";
 import { useExpenses } from "@/lib/store";
 import { useAuth } from "@/contexts/AuthContext";
 import { format, startOfMonth } from "date-fns";
+import { toRwf, type EntryCurrency } from "@/lib/currency";
 
 const categoryIcons: Record<string, React.ReactNode> = {
   Rent: <Home className="h-4 w-4" />,
@@ -30,6 +32,9 @@ export default function Expenses() {
   const [editAmount, setEditAmount] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editDate, setEditDate] = useState("");
+  const [amount, setAmount] = useState("");
+  const [amountCurrency, setAmountCurrency] = useState<EntryCurrency>("RWF");
+  const [editCurrency, setEditCurrency] = useState<EntryCurrency>("RWF");
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
   const startOfCurrentMonth = startOfMonth(new Date());
@@ -43,10 +48,12 @@ export default function Expenses() {
     const fd = new FormData(e.currentTarget);
     addExpense({
       category: fd.get("category") as string,
-      amount: parseFloat(fd.get("amount") as string),
+      amount: toRwf(parseFloat(amount) || 0, amountCurrency),
       description: fd.get("description") as string,
       date: new Date().toISOString().split("T")[0],
     });
+    setAmount("");
+    setAmountCurrency("RWF");
     setDialogOpen(false);
   };
 
@@ -55,7 +62,7 @@ export default function Expenses() {
     if (editingExpense) {
       console.log('Updating expense:', editingExpense.id, {
         category: editCategory,
-        amount: parseFloat(editAmount),
+        amount: toRwf(parseFloat(editAmount) || 0, editCurrency),
         description: editDescription,
         date: editDate,
       });
@@ -76,6 +83,7 @@ export default function Expenses() {
     setEditAmount(expense.amount.toString());
     setEditDescription(expense.description);
     setEditDate(expense.date);
+    setEditCurrency("RWF");
     setEditDialogOpen(true);
   };
 
@@ -143,7 +151,15 @@ export default function Expenses() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>Amount</Label><Input name="amount" type="number" step="0.01" required /></div>
+                <CurrencyAmountField
+                  label="Amount"
+                  value={amount}
+                  onChange={setAmount}
+                  currency={amountCurrency}
+                  onCurrencyChange={setAmountCurrency}
+                  step="0.01"
+                  required
+                />
                 <div><Label>Description</Label><Input name="description" placeholder="e.g. Monthly rent" required /></div>
                 <Button type="submit" className="w-full bg-primary text-primary-foreground">Add Expense</Button>
               </form>
@@ -210,13 +226,14 @@ export default function Expenses() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Amount</Label>
-                  <Input
-                    type="number"
+                  <CurrencyAmountField
+                    label="Amount"
+                    value={editAmount}
+                    onChange={setEditAmount}
+                    currency={editCurrency}
+                    onCurrencyChange={setEditCurrency}
                     step="0.01"
                     required
-                    value={editAmount}
-                    onChange={(e) => setEditAmount(e.target.value)}
                   />
                 </div>
                 <div>
