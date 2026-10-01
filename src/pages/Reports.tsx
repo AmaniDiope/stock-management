@@ -86,11 +86,12 @@ export default function Reports() {
 
   // Sales by product
   const salesByProduct = useMemo(() => {
-    const map: Record<string, { qty: number; total: number }> = {};
+    const map: Record<string, { qty: number; total: number; taxAmount: number }> = {};
     filtered.sales.forEach(s => {
-      if (!map[s.productName]) map[s.productName] = { qty: 0, total: 0 };
+      if (!map[s.productName]) map[s.productName] = { qty: 0, total: 0, taxAmount: 0 };
       map[s.productName].qty += s.quantity;
       map[s.productName].total += s.total;
+      map[s.productName].taxAmount += Number(s.taxAmount || 0);
     });
     return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
   }, [filtered.sales]);
@@ -356,8 +357,12 @@ export default function Reports() {
                       <div>
                         <span className="text-foreground font-medium">{name}</span>
                         <span className="text-xs text-muted-foreground ml-2">×{data.qty}</span>
+                        <p className="text-xs text-muted-foreground">Product tax collected: RWF {data.taxAmount.toLocaleString()}</p>
                       </div>
-                      <span className="font-semibold text-success">RWF {data.total.toLocaleString()}</span>
+                      <div className="text-right">
+                        <p className="font-semibold text-success">RWF {data.total.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Sales total</p>
+                      </div>
                     </div>
                   ))}
                 </div>

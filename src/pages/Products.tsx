@@ -9,7 +9,8 @@ import PageHeader from "@/components/PageHeader";
 import { useProducts, Product } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
-import { toRwf, type EntryCurrency } from "@/lib/currency";
+import { formatRwf, toRwf, type EntryCurrency } from "@/lib/currency";
+import { calculateProductTax } from "@/lib/productTax";
 
 export default function Products() {
   const { products, addProduct, updateProduct, deleteProduct } = useProducts();
@@ -34,6 +35,8 @@ export default function Products() {
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+  const previewPriceRwf = toRwf(parseFloat(priceInput) || 0, priceCurrency);
+  const previewTaxRwf = calculateProductTax(previewPriceRwf, isTaxable, parseFloat(taxRateInput) || 0);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -169,6 +172,9 @@ export default function Products() {
                         onChange={(event) => setTaxRateInput(event.target.value)}
                         required
                       />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatRwf(previewPriceRwf)} × {parseFloat(taxRateInput) || 0}% = {formatRwf(previewTaxRwf)} tax per unit; total with tax: {formatRwf(previewPriceRwf + previewTaxRwf)}
+                      </p>
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-3">
@@ -243,6 +249,11 @@ export default function Products() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-foreground text-sm truncate">{product.name}</p>
                 <p className="text-xs text-muted-foreground">{product.category} · Stock: {product.stock}</p>
+                <p className="text-xs text-muted-foreground">
+                  {product.isTaxable
+                    ? `Tax ${product.taxRate}%: ${formatRwf(calculateProductTax(product.price, true, product.taxRate))} per unit`
+                    : "Tax not charged"}
+                </p>
               </div>
               <span className="font-semibold text-foreground text-sm">RWF {product.price.toLocaleString()}</span>
               <div className="flex gap-1">
